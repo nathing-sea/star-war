@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Solar Defense: 全太陽系戰線</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-tap-highlight-color: transparent; }
+        /* 自定義捲軸 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        
+        .map-bg {
+            background-image: url('https://www.transparenttextures.com/patterns/stardust.png');
+            background-color: #020617;
+        }
+        
+        .node-label { text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none; }
+        
+        /* 動畫類 */
+        .pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        
+        .bounce-in { animation: bounce-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes bounce-in {
+            0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
+            100% { transform: translateX(-50%) scale(1); opacity: 1; }
+        }
+
+        /* 防止手機下拉刷新干擾遊戲 */
+        html, body { overscroll-behavior: none; height: 100%; width: 100%; overflow: hidden; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-full w-full flex flex-col">
+
+    <!-- 頂部導航 -->
+    <header class="h-12 lg:h-14 bg-slate-800 border-b border-slate-700 flex items-center px-3 justify-between shrink-0 z-30 shadow-md relative">
+        <div class="flex items-center gap-2 overflow-hidden">
+           <i data-lucide="globe" class="text-blue-400 w-5 h-5 lg:w-6 lg:h-6 shrink-0"></i>
+           <h1 class="font-bold text-sm lg:text-lg tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 truncate">SOLAR DEFENSE</h1>
+        </div>
+        <div id="game-status-bar" class="hidden flex gap-2 lg:gap-6 text-xs lg:text-sm items-center shrink-0 ml-2">
+            <!-- JS 動態填充 -->
+        </div>
+    </header>
+
+    <!-- 主佈局：手機版直向時為 flex-col，控制台在下；桌面版或橫向時為 flex-row，控制台在左 -->
+    <div class="flex-1 relative overflow-hidden flex flex-col lg:flex-row">
+        
+        <!-- 左側/底部控制面板 -->
+        <!-- order-last lg:order-first: 手機時在底部(最後渲染)，桌面時在左側(最先渲染) -->
+        <div class="order-last lg:order-first w-full lg:w-80 h-[40%] lg:h-auto bg-slate-800/95 border-t lg:border-t-0 lg:border-r border-slate-700 p-3 lg:p-4 flex flex-col gap-2 lg:gap-4 z-20 backdrop-blur-md shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] lg:shadow-xl shrink-0 transition-all" id="sidebar">
+            <!-- 內容由 JS 渲染 -->
+        </div>
+
+        <!-- 地圖視窗 -->
+        <div id="map-viewport" class="flex-1 relative overflow-hidden map-bg cursor-grab active:cursor-grabbing touch-none">
+            
+            <!-- 地圖控制 UI (縮放按鈕) -->
+            <div class="absolute top-4 right-4 lg:bottom-6 lg:right-6 lg:top-auto z-20 flex flex-col gap-2 pointer-events-auto">
+                <button onclick="game.zoom(0.2)" class="p-2 bg-slate-800/80 text-white rounded shadow-lg border border-slate-600 hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur"><i data-lucide="plus" class="w-5 h-5"></i></button>
+                <div id="zoom-level" class="p-1 lg:p-2 bg-slate-900/80 text-[10px] lg:text-xs text-center rounded border border-slate-700 text-slate-400 font-mono select-none backdrop-blur">
+                    80%
+                </div>
+                <button onclick="game.zoom(-0.2)" class="p-2 bg-slate-800/80 text-white rounded shadow-lg border border-slate-600 hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur"><i data-lucide="minus" class="w-5 h-5"></i></button>
+            </div>
+
+            <!-- 地圖內容容器 (Transform Target) -->
+            <div id="map-container" class="relative transition-transform duration-75 ease-out origin-top-left shadow-2xl" style="width: 3200px; height: 2000px;">
+                <!-- 網格背景 -->
+                <div class="absolute inset-0 w-full h-full opacity-10 pointer-events-none" 
+                     style="background-image: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 100px 100px;">
+                </div>
+                
+                <!-- SVG 連線層 -->
+                <svg id="map-lines" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+                
+                <!-- 節點層 -->
+                <div id="map-nodes" class="absolute inset-0 w-full h-full z-10"></div>
+
+                <!-- 戰術選單層 (獨立於節點，避免點擊問題) -->
+                <div id="tactical-menu-layer" class="absolute inset-0 w-full h-full z-50 pointer-events-none"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- JavaScript 遊戲邏輯 -->
+    <script>
+        const FACTIONS = {
+            USA: { id: 'USA', name: '美利堅太空軍', color: 'bg-blue-600', textColor: 'text-blue-400', ability: '天基火力：艦隊攻擊+5，軌道轟炸無懲罰', bonus: { type: 'atk', val: 5 }, shipNames: ['USS Enterprise', 'USS Voyager'], armyNames: ['Space Marines'] },
+            CHN: { id: 'CHN', name: '中國戰略支援', color: 'bg-red-600', textColor: 'text-red-400', ability: '動員令：陸軍HP+20，定期生成陸軍', bonus: { type: 'army_hp', val: 20 }, shipNames: ['CNS Zheng He', 'CNS Tiangong'], armyNames: ['Red Guard'] },
+            RUS: { id: 'RUS', name: '俄羅斯航太軍', color: 'bg-yellow-700', textColor: 'text-yellow-500', ability: '鈦合金裝甲：全單位HP+20，近戰反傷', bonus: { type: 'all_hp', val: 20 }, shipNames: ['Kosmos One', 'Gagarin'], armyNames: ['Spetsnaz'] },
+            EU: { id: 'EU', name: '歐盟防衛軍', color: 'bg-indigo-500', textColor: 'text-indigo-400', ability: '奈米修復：移動力+2，每回合回血', bonus: { type: 'move', val: 2 }, shipNames: ['ESA Jules Verne', 'ESA Columbus'], armyNames: ['Eurocorps'] },
+            ALIEN: { id: 'ALIEN', name: '澤塔星際蟲族', color: 'bg-purple-600', textColor: 'text-purple-400', ability: '虛空蟲巢：壓倒性數量與生命值', shipNames: ['Hive Mother', 'Harvester'], armyNames: ['Broodlings'] }
+        };
+
+        const UNIT_TYPES = {
+            FLEET: { id: 'fleet', name: '艦隊', hp: 50, atk: 15, move: 2, icon: 'rocket' },
+            ARMY: { id: 'army', name: '陸軍', hp: 30, atk: 10, move: 1, icon: 'shield' },
+            DEFENSE: { id: 'defense', name: '防禦系統', hp: 80, atk: 25, move: 0, icon: 'castle' }
+        };
+
+        const MAP_NODES = [
+            { id: 'sun', x: 10, y: 50, name: '太陽 (輻射區)', type: 'point', hazard: true },
+            { id: 'mercury_orbit', x: 20, y: 45, name: '水星軌道', type: 'orbit', parent: 'mercury' }, { id: 'mercury', x: 20, y: 50, name: '水星前哨', type: 'surface' },
+            { id: 'venus_orbit', x: 30, y: 40, name: '金星軌道', type: 'orbit', parent: 'venus' }, { id: 'venus', x: 30, y: 35, name: '金星大氣層', type: 'surface' },
+            { id: 'earth_orbit', x: 40, y: 55, name: '地球高軌道', type: 'orbit', parent: 'earth' }, { id: 'earth', x: 40, y: 60, name: '地球 (母星)', type: 'surface', capital: true }, { id: 'moon', x: 43, y: 63, name: '月球基地', type: 'surface' },
+            { id: 'mars_orbit', x: 55, y: 50, name: '火星軌道', type: 'orbit', parent: 'mars' }, { id: 'mars', x: 55, y: 55, name: '火星殖民地', type: 'surface' }, { id: 'phobos', x: 58, y: 48, name: '火衛一要塞', type: 'surface' },
+            { id: 'ceres_orbit', x: 65, y: 40, name: '穀神星軌道', type: 'orbit', parent: 'ceres' }, { id: 'ceres', x: 65, y: 45, name: '穀神星礦區', type: 'surface' },
+            { id: 'vesta_orbit', x: 62, y: 70, name: '灶神星軌道', type: 'orbit', parent: 'vesta' }, { id: 'vesta', x: 62, y: 75, name: '灶神星', type: 'surface' },
+            { id: 'jupiter_orbit', x: 80, y: 50, name: '木星軌道', type: 'orbit', parent: 'jupiter' }, { id: 'ganymede', x: 83, y: 53, name: '木衛三', type: 'surface' }, { id: 'europa', x: 77, y: 53, name: '木衛二', type: 'surface' },
+            { id: 'saturn_orbit', x: 100, y: 60, name: '土星軌道', type: 'orbit', parent: 'saturn' }, { id: 'titan', x: 100, y: 65, name: '泰坦星', type: 'surface' }, { id: 'enceladus', x: 103, y: 58, name: '土衛二', type: 'surface' },
+            { id: 'uranus_orbit', x: 120, y: 40, name: '天王星軌道', type: 'orbit', parent: 'uranus' }, { id: 'miranda', x: 120, y: 35, name: '天衛五', type: 'surface' },
+            { id: 'neptune_orbit', x: 140, y: 70, name: '海王星軌道', type: 'orbit', parent: 'neptune' }, { id: 'triton', x: 143, y: 73, name: '海衛一', type: 'surface' },
+            { id: 'pluto_orbit', x: 155, y: 50, name: '冥王星軌道', type: 'orbit', parent: 'pluto' }, { id: 'pluto', x: 155, y: 55, name: '冥王星', type: 'surface' }, { id: 'kuiper_outpost', x: 165, y: 50, name: '柯伊伯前哨', type: 'point' },
+            { id: 'l4', x: 40, y: 30, name: 'L4 拉格朗日點', type: 'point' }, { id: 'l5', x: 40, y: 80, name: 'L5 拉格朗日點', type: 'point' }
+        ];
+
+        const MAP_LINKS = [
+            ['mercury', 'mercury_orbit'], ['venus', 'venus_orbit'], ['earth', 'earth_orbit'], ['moon', 'earth_orbit'],
+            ['mars', 'mars_orbit'], ['phobos', 'mars_orbit'], ['ceres', 'ceres_orbit'], ['vesta', 'vesta_orbit'],
+            ['ganymede', 'jupiter_orbit'], ['europa', 'jupiter_orbit'], ['titan', 'saturn_orbit'], ['enceladus', 'saturn_orbit'], 
+            ['miranda', 'uranus_orbit'], ['triton', 'neptune_orbit'], ['pluto', 'pluto_orbit'],
+            ['sun', 'mercury_orbit'], ['mercury_orbit', 'venus_orbit'], ['venus_orbit', 'earth_orbit'],
+            ['earth_orbit', 'mars_orbit'], ['mars_orbit', 'ceres_orbit'], ['mars_orbit', 'vesta_orbit'],
+            ['ceres_orbit', 'jupiter_orbit'], ['vesta_orbit', 'jupiter_orbit'], ['jupiter_orbit', 'saturn_orbit'],
+            ['saturn_orbit', 'uranus_orbit'], ['uranus_orbit', 'neptune_orbit'], ['neptune_orbit', 'pluto_orbit'], ['pluto_orbit', 'kuiper_outpost'], 
+            ['earth_orbit', 'l4'], ['earth_orbit', 'l5'], ['l4', 'ceres_orbit'], ['l5', 'vesta_orbit'], ['l4', 'venus_orbit'], ['l5', 'venus_orbit']
+        ];
+
+        const MAP_WIDTH = 3200;
+        const MAP_HEIGHT = 2000;
+
+        class GameEngine {
+            constructor() {
+                this.state = {
+                    phase: 'menu',
+                    mode: 'standard',
+                    faction: null,
+                    turn: 1,
+                    turnPhase: 'PLAYER', 
+                    units: [],
+                    selectedUnitId: null,
+                    logs: [],
+                    actionMenu: null,
+                    view: { x: -200, y: -400, scale: 0.8 } // Default Scale
+                };
+                this.dragState = { isDown: false, startX: 0, startY: 0, initialViewX: 0, initialViewY: 0, isDragging: false };
+                this.container = document.getElementById('map-container');
+                this.viewport = document.getElementById('map-viewport');
+                
+                // Detect mobile initial scale
+                if(window.innerWidth < 768) {
+                    this.state.view.scale = 0.5;
+                    this.state.view.x = -1200; // Center vaguely on earth
+                    this.state.view.y = -1000;
+                }
+
+                this.initListeners();
+                this.renderUI();
+                this.updateTransform();
+            }
+
+            initListeners() {
+                // Mouse Events
+                this.viewport.addEventListener('mousedown', (e) => {
+                    if(e.target.closest('button')) return;
+                    this.dragState.isDown = true;
+                    this.dragState.startX = e.clientX;
+                    this.dragState.startY = e.clientY;
+                    this.dragState.initialViewX = this.state.view.x;
+                    this.dragState.initialViewY = this.state.view.y;
+                    this.dragState.isDragging = false;
+                });
+                window.addEventListener('mousemove', (e) => {
+                    if (!this.dragState.isDown) return;
+                    const dx = e.clientX - this.dragState.startX;
+                    const dy = e.clientY - this.dragState.startY;
+                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                        this.dragState.isDragging = true;
+                        this.closeActionMenu();
+                    }
+                    this.state.view.x = this.dragState.initialViewX + dx;
+                    this.state.view.y = this.dragState.initialViewY + dy;
+                    this.updateTransform();
+                });
+                window.addEventListener('mouseup', () => { this.dragState.isDown = false; });
+
+                // Touch Events (for Mobile)
+                this.viewport.addEventListener('touchstart', (e) => {
+                    if(e.target.closest('button')) return;
+                    this.dragState.isDown = true;
+                    const touch = e.touches[0];
+                    this.dragState.startX = touch.clientX;
+                    this.dragState.startY = touch.clientY;
+                    this.dragState.initialViewX = this.state.view.x;
+                    this.dragState.initialViewY = this.state.view.y;
+                    this.dragState.isDragging = false;
+                }, {passive: false});
+
+                window.addEventListener('touchmove', (e) => {
+                    if (!this.dragState.isDown) return;
+                    // e.preventDefault(); // Prevent page scroll
+                    const touch = e.touches[0];
+                    const dx = touch.clientX - this.dragState.startX;
+                    const dy = touch.clientY - this.dragState.startY;
+                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                        this.dragState.isDragging = true;
+                        this.closeActionMenu();
+                    }
+                    this.state.view.x = this.dragState.initialViewX + dx;
+                    this.state.view.y = this.dragState.initialViewY + dy;
+                    this.updateTransform();
+                }, {passive: false});
+
+                window.addEventListener('touchend', () => { this.dragState.isDown = false; });
+
+                this.viewport.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom(e.deltaY > 0 ? -0.1 : 0.1); });
+                
+                this.container.addEventListener('click', (e) => {
+                    if (this.dragState.isDragging) return;
+                    if (!e.target.closest('.map-node') && !e.target.closest('#tactical-menu-layer')) {
+                        this.state.selectedUnitId = null;
+                        this.closeActionMenu();
+                        this.renderMapNodes();
+                        this.renderUI();
+                    }
+                });
+            }
+
+            zoom(delta) {
+                this.state.view.scale = Math.min(Math.max(this.state.view.scale + delta, 0.3), 2.0);
+                document.getElementById('zoom-level').textContent = Math.round(this.state.view.scale * 100) + '%';
+                this.updateTransform();
+            }
+
+            updateTransform() {
+                this.container.style.transform = `translate(${this.state.view.x}px, ${this.state.view.y}px) scale(${this.state.view.scale})`;
+            }
+
+            setMode(mode) {
+                this.state.mode = mode;
+                this.renderUI();
+            }
+
+            startGame(factionKey) {
+                const faction = FACTIONS[factionKey];
+                this.state.faction = faction;
+                this.state.phase = 'playing';
+                this.state.units = this.generateInitialUnits(factionKey);
+                this.state.logs = [];
+                this.state.turn = 1;
+                this.state.turnPhase = 'PLAYER';
+                
+                let msg = `指揮官，${faction.name} 已部署。`;
+                if (this.state.mode === 'alliance') msg += " 聯合協議已簽署。";
+                else if (this.state.mode === 'invasion') msg = "蟲巢意志已覺醒。目標：地球。";
+                else msg += " 偵測到柯伊伯帶反應。";
+                
+                this.addLog(msg, 'system');
+                this.renderUI();
+                this.renderMapLines();
+                this.renderMapNodes();
+                lucide.createIcons();
+            }
+
+            generateInitialUnits(playerFactionKey) {
+                let units = [];
+                let id = 1;
+                const isAlliance = this.state.mode === 'alliance';
+                const isInvasion = this.state.mode === 'invasion';
+                const humanFactions = (isAlliance || isInvasion) ? ['USA', 'CHN', 'RUS', 'EU'] : [playerFactionKey];
+
+                humanFactions.forEach(fKey => {
+                    const f = FACTIONS[fKey];
+                    const isPlayer = !isInvasion && (fKey === playerFactionKey);
+                    
+                    ['earth_orbit', 'earth_orbit', 'mars_orbit'].forEach((loc, i) => units.push(this.createUnit(id++, fKey, 'fleet', f.shipNames[i%3]||`F-${i}`, loc, f, isPlayer)));
+                    ['earth', 'moon', 'mars'].forEach((loc, i) => units.push(this.createUnit(id++, fKey, 'army', f.armyNames[i%2]||`A-${i}`, loc, f, isPlayer)));
+                    ['earth', 'mars'].forEach((loc, i) => units.push(this.createUnit(id++, fKey, 'defense', `${fKey}防禦-${i+1}`, loc, f, isPlayer)));
+                });
+
+                let alienSpawns = [
+                    { loc: 'saturn_orbit', type: 'fleet' }, { loc: 'titan', type: 'army' }, { loc: 'jupiter_orbit', type: 'fleet' }, { loc: 'ganymede', type: 'army' },
+                    { loc: 'l5', type: 'fleet' }, { loc: 'vesta', type: 'army' }, { loc: 'uranus_orbit', type: 'fleet' }, { loc: 'miranda', type: 'defense' },
+                    { loc: 'neptune_orbit', type: 'fleet' }, { loc: 'triton', type: 'army' }, { loc: 'pluto', type: 'defense' }, { loc: 'kuiper_outpost', type: 'fleet' }
+                ];
+
+                if (isAlliance || isInvasion) {
+                    alienSpawns = alienSpawns.concat([
+                        { loc: 'pluto_orbit', type: 'fleet' }, { loc: 'neptune_orbit', type: 'fleet' }, { loc: 'uranus_orbit', type: 'fleet' }, { loc: 'saturn_orbit', type: 'fleet' },
+                        { loc: 'jupiter_orbit', type: 'fleet' }, { loc: 'ceres_orbit', type: 'fleet' }
+                    ]);
+                }
+                
+                alienSpawns.forEach((spawn, i) => units.push(this.createUnit(id++, 'ALIEN', spawn.type, `Alien-${spawn.type}-${i}`, spawn.loc, null, isInvasion)));
+                return units;
+            }
+
+            createUnit(id, factionKey, typeKey, name, loc, factionBonus, isPlayerControl) {
+                const type = UNIT_TYPES[typeKey.toUpperCase()];
+                let bonusHp = 0, bonusAtk = 0, bonusMove = 0;
+                let isAi = !isPlayerControl;
+
+                if (factionKey !== 'ALIEN' && factionBonus) {
+                    if (factionBonus.bonus.type === 'fleet_hp' && typeKey === 'fleet') bonusHp = factionBonus.bonus.val;
+                    if (factionBonus.bonus.type === 'army_hp' && typeKey === 'army') bonusHp = factionBonus.bonus.val;
+                    if (factionBonus.bonus.type === 'all_hp') bonusHp = factionBonus.bonus.val;
+                    if (factionBonus.bonus.type === 'atk' && typeKey === 'fleet') bonusAtk = factionBonus.bonus.val;
+                    if (factionBonus.bonus.type === 'move') bonusMove = factionBonus.bonus.val;
+                } 
+                
+                if (factionKey === 'ALIEN') {
+                    const isBuffed = this.state.mode === 'alliance' || this.state.mode === 'invasion';
+                    bonusHp = isBuffed ? 40 : 10; 
+                    bonusAtk = isBuffed ? 5 : 0;
+                }
+
+                return {
+                    id: id, faction: factionKey, type: typeKey, name: name,
+                    hp: type.hp + bonusHp, maxHp: type.hp + bonusHp,
+                    atk: type.atk + bonusAtk, move: type.move + bonusMove,
+                    icon: type.icon, location: loc, 
+                    hasMoved: isAi, hasAttacked: false, 
+                    isAi: isAi, control: isPlayerControl ? 'PLAYER' : 'AI'
+                };
+            }
+
+            getReachableNodes(startId, range) {
+                const reachable = {}; 
+                const queue = [{id: startId, dist: 0}];
+                reachable[startId] = 0;
+                while(queue.length > 0) {
+                    const current = queue.shift();
+                    if (current.dist >= range) continue;
+                    const neighbors = [];
+                    MAP_LINKS.forEach(link => {
+                        if (link[0] === current.id) neighbors.push(link[1]);
+                        if (link[1] === current.id) neighbors.push(link[0]);
+                    });
+                    neighbors.forEach(nextId => {
+                        if (reachable[nextId] === undefined) {
+                            reachable[nextId] = current.dist + 1;
+                            queue.push({id: nextId, dist: current.dist + 1});
+                        }
+                    });
+                }
+                return reachable;
+            }
+
+            handleNodeClick(nodeId) {
+                if (this.state.phase !== 'playing' || this.state.turnPhase !== 'PLAYER') return;
+                this.closeActionMenu();
+                
+                const unitsAtNode = this.state.units.filter(u => u.location === nodeId && u.hp > 0);
+                const myUnits = unitsAtNode.filter(u => u.control === 'PLAYER');
+                const selectedUnit = this.state.units.find(u => u.id === this.state.selectedUnitId);
+
+                // Select Self
+                if (selectedUnit && selectedUnit.location === nodeId) {
+                    const enemiesHere = unitsAtNode.filter(u => u.faction !== selectedUnit.faction);
+                    if (enemiesHere.length > 0 && !selectedUnit.hasAttacked) {
+                        const node = MAP_NODES.find(n => n.id === nodeId);
+                        if (!(selectedUnit.type === 'army' && node.type !== 'surface')) {
+                            this.showActionMenu(nodeId, false, true);
+                            return;
+                        }
+                    }
+                    if (myUnits.length > 1) {
+                        const idx = myUnits.findIndex(u => u.id === selectedUnit.id);
+                        const next = myUnits[(idx + 1) % myUnits.length];
+                        this.state.selectedUnitId = next.id;
+                        this.renderMapNodes();
+                        this.renderUI();
+                        return;
+                    }
+                    return;
+                }
+
+                // New Selection
+                if (!selectedUnit) {
+                    if (myUnits.length > 0) {
+                        const active = myUnits.find(u => !u.hasMoved) || myUnits[0];
+                        this.state.selectedUnitId = active.id;
+                        this.renderMapNodes();
+                        this.renderUI();
+                    }
+                    return;
+                }
+
+                // Action
+                const targetNode = MAP_NODES.find(n => n.id === nodeId);
+                const enemiesHere = unitsAtNode.filter(u => u.faction !== selectedUnit.faction);
+                
+                let canMove = false;
+                const reachableNodes = this.getReachableNodes(selectedUnit.location, selectedUnit.move);
+                const dist = reachableNodes[nodeId];
+                if (!selectedUnit.hasMoved && dist !== undefined && dist > 0) {
+                    if (!(selectedUnit.type === 'fleet' && targetNode.type === 'surface') && selectedUnit.type !== 'defense') canMove = true;
+                }
+
+                let canAttack = false;
+                const isConnectedNode = this.isConnected(selectedUnit.location, nodeId);
+                const isOrbitBombard = (selectedUnit.type === 'fleet' && targetNode.parent === selectedUnit.location);
+                
+                if (!selectedUnit.hasAttacked && enemiesHere.length > 0) {
+                    const inRange = isConnectedNode || isOrbitBombard || selectedUnit.location === nodeId;
+                    if (inRange) {
+                        const uNode = MAP_NODES.find(n=>n.id===selectedUnit.location);
+                        if (!(selectedUnit.type === 'army' && (uNode.type !== 'surface' || targetNode.type !== 'surface'))) canAttack = true;
+                    }
+                }
+
+                if (canMove && canAttack) this.showActionMenu(nodeId, true, true);
+                else if (canMove) this.moveUnit(selectedUnit, nodeId);
+                else if (canAttack) this.combat(selectedUnit, nodeId);
+                else {
+                    if (!isConnectedNode && !isOrbitBombard) {
+                        this.state.selectedUnitId = null;
+                        this.renderMapNodes();
+                        this.renderUI();
+                    }
+                }
+            }
+
+            showActionMenu(nodeId, canMove, canAttack) {
+                const node = MAP_NODES.find(n => n.id === nodeId);
+                const x = node.x * (MAP_WIDTH / 180);
+                const y = node.y * (MAP_HEIGHT / 100);
+                let buttons = '';
+                if (canMove) buttons += `<button onclick="window.game.executeAction('move', '${nodeId}')" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded shadow-lg flex items-center gap-2 border border-emerald-400 pointer-events-auto"><i data-lucide="move" class="w-4 h-4"></i> 移動</button>`;
+                if (canAttack) buttons += `<button onclick="window.game.executeAction('attack', '${nodeId}')" class="bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2 px-4 rounded shadow-lg flex items-center gap-2 border border-red-400 pointer-events-auto"><i data-lucide="crosshair" class="w-4 h-4"></i> 攻擊</button>`;
+                document.getElementById('tactical-menu-layer').innerHTML = `<div class="absolute flex flex-col gap-2 z-50 animate-bounce-in" style="left: ${x}px; top: ${y + 30}px; transform: translateX(-50%);">${buttons}</div>`;
+                lucide.createIcons();
+            }
+
+            closeActionMenu() { document.getElementById('tactical-menu-layer').innerHTML = ''; }
+            executeAction(type, nodeId) {
+                const unit = this.state.units.find(u => u.id === this.state.selectedUnitId);
+                if (!unit) return;
+                if (type === 'move') this.moveUnit(unit, nodeId);
+                if (type === 'attack') this.combat(unit, nodeId);
+                this.closeActionMenu();
+            }
+
+            moveUnit(unit, nodeId) {
+                unit.location = nodeId;
+                unit.hasMoved = true;
+                const nodeName = MAP_NODES.find(n => n.id === nodeId).name;
+                this.addLog(`${unit.name} 移動至 ${nodeName}`, 'move');
+                if (unit.type === 'army' && MAP_NODES.find(n => n.id === nodeId).type !== 'surface') this.addLog(`提示：${unit.name} 進入太空`, 'warning');
+                this.state.selectedUnitId = null;
+                this.renderMapNodes();
+                this.renderUI();
+            }
+
+            combat(attacker, nodeId) {
+                const enemies = this.state.units.filter(u => u.location === nodeId && u.faction !== attacker.faction && u.hp > 0);
+                if (enemies.length === 0) return;
+                const defender = enemies[Math.floor(Math.random() * enemies.length)];
+                
+                let dmg = attacker.atk + Math.floor(Math.random() * 5);
+                let note = '';
+                if (attacker.type === 'fleet' && defender.type === 'army' && attacker.location !== defender.location) {
+                    if (attacker.faction === 'USA') note = '(精準)';
+                    else { dmg = Math.floor(dmg * 0.7); note = '(轟炸)'; }
+                } else if (attacker.location === defender.location) note = '(近戰)';
+
+                const defNode = MAP_NODES.find(n => n.id === defender.location);
+                if (defender.type === 'army' && defNode.type === 'surface') { dmg = Math.max(1, dmg - 3); note += ' [掩]'; }
+                if (defender.type === 'defense') { dmg = Math.max(1, dmg - 5); note += ' [盾]'; }
+
+                defender.hp -= dmg;
+                let logType = (attacker.control === 'PLAYER') ? 'combat' : 'enemy';
+                if (this.state.mode === 'alliance' && attacker.control === 'AI' && attacker.faction !== 'ALIEN') logType = 'move';
+
+                this.addLog(`${attacker.name} 擊中 ${defender.name}${note} 傷:${dmg}`, logType);
+                
+                if (defender.faction === 'RUS' && attacker.location === defender.location) {
+                    attacker.hp -= 5;
+                    this.addLog(`${defender.name} 反傷 5!`, 'combat');
+                }
+
+                if (defender.hp <= 0) this.addLog(`${defender.name} 擊毀`, 'destroy');
+                if (attacker.hp <= 0) this.addLog(`${attacker.name} 擊毀`, 'destroy');
+
+                this.state.selectedUnitId = null;
+                this.checkWin();
+                this.renderMapNodes();
+                this.renderUI();
+            }
+
+            checkWin() {
+                const aliens = this.state.units.filter(u => u.faction === 'ALIEN' && u.hp > 0);
+                const humans = this.state.units.filter(u => u.faction !== 'ALIEN' && u.hp > 0);
+                const earthInvaders = aliens.filter(u => u.location === 'earth');
+                const earthDefenders = humans.filter(u => u.location === 'earth');
+                const earthFallen = earthInvaders.length > 0 && earthDefenders.length === 0;
+
+                if (this.state.faction.id === 'ALIEN') {
+                    if (earthFallen || humans.length === 0) this.endGame('won');
+                    else if (aliens.length === 0) this.endGame('lost');
+                } else {
+                    if (aliens.length === 0) this.endGame('won');
+                    else if (earthFallen || humans.length === 0) this.endGame('lost');
+                }
+            }
+
+            endGame(result) {
+                this.state.phase = result;
+                this.renderUI();
+            }
+
+            endTurn() {
+                this.state.selectedUnitId = null;
+                this.closeActionMenu();
+                if (this.state.mode === 'alliance') {
+                    this.state.turnPhase = 'ALLIES';
+                    this.addLog('--- 友軍回合 ---', 'system');
+                    this.renderUI();
+                    setTimeout(() => this.runAiTurn('FRIENDLY'), 500);
+                } else if (this.state.mode === 'invasion') {
+                    this.state.turnPhase = 'HUMANS';
+                    this.addLog('--- 聯軍回合 ---', 'system');
+                    this.renderUI();
+                    setTimeout(() => this.runAiTurn('HUMANS'), 500);
+                } else {
+                    this.startAlienTurn();
+                }
+            }
+
+            startAlienTurn() {
+                this.state.turnPhase = 'ALIEN';
+                this.addLog('--- 敵方回合 ---', 'system');
+                this.renderUI();
+                this.renderMapNodes();
+                setTimeout(() => this.runAiTurn('ALIEN'), 800);
+            }
+
+            runAiTurn(side) { 
+                const units = this.state.units.filter(u => u.hp > 0);
+                let actors, targets;
+                if (side === 'ALIEN') {
+                    actors = units.filter(u => u.faction === 'ALIEN');
+                    targets = units.filter(u => u.faction !== 'ALIEN');
+                } else if (side === 'FRIENDLY') {
+                    actors = units.filter(u => u.faction !== 'ALIEN' && u.control === 'AI');
+                    targets = units.filter(u => u.faction === 'ALIEN');
+                } else if (side === 'HUMANS') {
+                    actors = units.filter(u => u.faction !== 'ALIEN');
+                    targets = units.filter(u => u.faction === 'ALIEN');
+                }
+
+                actors.forEach(actor => {
+                    if (actor.type === 'defense') {
+                        let potentialTargets = targets.filter(t => this.isConnected(actor.location, t.location) || actor.location === t.location);
+                        const node = MAP_NODES.find(n => n.id === actor.location);
+                        if(node.type==='surface') {
+                            const orbit = MAP_NODES.find(n=>n.type==='orbit' && n.parent===node.id);
+                            if(orbit) potentialTargets = potentialTargets.concat(targets.filter(t=>t.location===orbit.id));
+                        }
+                        if (potentialTargets.length > 0) this.performAiAttack(actor, potentialTargets[Math.floor(Math.random()*potentialTargets.length)]);
+                        return;
+                    }
+
+                    let target = null;
+                    const actorNode = MAP_NODES.find(n => n.id === actor.location);
+                    if (!(actor.type === 'army' && actorNode.type !== 'surface')) {
+                        let potential = targets.filter(t => this.isConnected(actor.location, t.location) || actor.location === t.location);
+                        if (actor.type === 'army') potential = potential.filter(t => MAP_NODES.find(n=>n.id===t.location).type === 'surface');
+                        if (potential.length === 0 && actor.type === 'fleet' && actorNode.type === 'orbit') {
+                            const surf = targets.find(t => t.location === actorNode.parent);
+                            if (surf) potential.push(surf);
+                        }
+                        if (potential.length > 0) target = potential[Math.floor(Math.random()*potential.length)];
+                    }
+
+                    if (target) {
+                        this.performAiAttack(actor, target);
+                    } else {
+                        const reachable = this.getReachableNodes(actor.location, actor.move);
+                        let goalId = 'earth';
+                        if (side === 'FRIENDLY' || side === 'HUMANS') {
+                            const nearestAlien = targets.sort((a,b) => this.getDist(MAP_NODES.find(n=>n.id===a.location), MAP_NODES.find(n=>n.id===actor.location)) - this.getDist(MAP_NODES.find(n=>n.id===b.location), MAP_NODES.find(n=>n.id===actor.location)))[0];
+                            if (nearestAlien) goalId = nearestAlien.location;
+                            else if (side === 'HUMANS') goalId = 'earth';
+                        }
+                        const goalNode = MAP_NODES.find(n => n.id === goalId);
+                        const currDist = this.getDist(MAP_NODES.find(n => n.id === actor.location), goalNode);
+                        let bestMove = null, bestDist = currDist;
+                        Object.keys(reachable).forEach(nodeId => {
+                            if (nodeId === actor.location) return;
+                            const n = MAP_NODES.find(n=>n.id===nodeId);
+                            if (actor.type === 'fleet' && n.type === 'surface') return;
+                            if (actor.type === 'army' && n.type !== 'surface' && currDist < 50) return;
+                            const d = this.getDist(n, goalNode);
+                            if (d < bestDist) { bestDist = d; bestMove = nodeId; }
+                        });
+                        if (bestMove) actor.location = bestMove;
+                    }
+                });
+
+                if (side === 'FRIENDLY') this.startAlienTurn();
+                else if (side === 'ALIEN' || side === 'HUMANS') {
+                    this.state.units.forEach(u => { u.hasMoved = false; u.hasAttacked = false; });
+                    this.startPlayerTurn();
+                }
+            }
+
+            performAiAttack(attacker, defender) {
+                let dmg = attacker.atk;
+                let note = '';
+                if (attacker.type === 'fleet' && defender.type === 'army' && attacker.location !== defender.location) {
+                    if (attacker.faction !== 'USA') dmg = Math.floor(dmg * 0.6); 
+                    note = '(轟炸)';
+                }
+                const tNode = MAP_NODES.find(n => n.id === defender.location);
+                if (defender.type === 'army' && tNode.type === 'surface') dmg = Math.max(1, dmg - 3);
+                let reflectDmg = 0;
+                if (defender.faction === 'RUS' && attacker.location === defender.location) reflectDmg = 5;
+
+                defender.hp -= dmg;
+                let logType = (attacker.control === 'PLAYER') ? 'combat' : 'enemy';
+                if (this.state.mode === 'alliance' && attacker.control === 'AI' && attacker.faction !== 'ALIEN') logType = 'move'; 
+
+                this.addLog(`${attacker.name} 攻擊 ${defender.name}${note} 傷:${dmg}`, logType);
+                
+                if (reflectDmg > 0) {
+                    attacker.hp -= reflectDmg;
+                    this.addLog(`${defender.name} 反傷 ${reflectDmg}`, 'combat');
+                }
+
+                if (defender.hp <= 0) this.addLog(`${defender.name} 擊毀`, 'destroy');
+                if (attacker.hp <= 0) this.addLog(`${attacker.name} 擊毀`, 'destroy');
+            }
+
+            startPlayerTurn() {
+                this.state.turn++;
+                this.state.turnPhase = 'PLAYER';
+                this.addLog(`--- 第 ${this.state.turn} 回合 ---`, 'system');
+                const humanUnits = this.state.units.filter(u => u.faction !== 'ALIEN');
+                
+                if (this.state.mode === 'alliance' || this.state.mode === 'invasion' || this.state.faction.id === 'EU') {
+                    let healed = 0;
+                    humanUnits.filter(u => u.faction === 'EU' && u.hp > 0 && u.hp < u.maxHp).forEach(u => {
+                        u.hp = Math.min(u.hp + 5, u.maxHp);
+                        healed++;
+                    });
+                    if (healed > 0 && this.state.mode !== 'invasion') this.addLog(`EU 奈米修復生效`, 'info');
+                }
+
+                if ((this.state.mode === 'alliance' || this.state.mode === 'invasion' || this.state.faction.id === 'CHN') && this.state.turn % 3 === 0) {
+                    const earthSafe = !this.state.units.some(u => u.location === 'earth' && u.faction === 'ALIEN');
+                    if (earthSafe) {
+                        const id = Math.max(...this.state.units.map(u => u.id), 0) + 1;
+                        const playerIsChn = this.state.faction.id === 'CHN';
+                        const newUnit = this.createUnit(id, 'CHN', 'army', `動員陸軍`, 'earth', FACTIONS.CHN, playerIsChn);
+                        this.state.units.push(newUnit);
+                        this.addLog(`動員令: 中國增援`, 'info');
+                    }
+                }
+                this.checkWin();
+                this.renderUI();
+                this.renderMapNodes();
+            }
+
+            isConnected(id1, id2) { return MAP_LINKS.some(l => (l[0]===id1 && l[1]===id2) || (l[0]===id2 && l[1]===id1)); }
+            getDist(nA, nB) { return Math.sqrt(Math.pow(nA.x-nB.x,2) + Math.pow(nA.y-nB.y,2)); }
+            addLog(text, type) { this.state.logs.push({ text, type }); this.renderUI(); }
+
+            renderMapLines() {
+                const svg = document.getElementById('map-lines');
+                let html = '';
+                MAP_LINKS.forEach(l => {
+                    const n1 = MAP_NODES.find(n => n.id === l[0]);
+                    const n2 = MAP_NODES.find(n => n.id === l[1]);
+                    const x1 = n1.x * (MAP_WIDTH/180), y1 = n1.y * (MAP_HEIGHT/100);
+                    const x2 = n2.x * (MAP_WIDTH/180), y2 = n2.y * (MAP_HEIGHT/100);
+                    html += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" stroke-dasharray="${(n1.type==='orbit'&&n2.type==='orbit')?'8,8':'0'}" />`;
+                });
+                svg.innerHTML = html;
+            }
+
+            renderMapNodes() {
+                const container = document.getElementById('map-nodes');
+                const selectedUnit = this.state.units.find(u => u.id === this.state.selectedUnitId);
+                const reachable = selectedUnit ? this.getReachableNodes(selectedUnit.location, selectedUnit.move) : {};
+                
+                container.innerHTML = MAP_NODES.map(node => {
+                    const x = node.x * (MAP_WIDTH/180), y = node.y * (MAP_HEIGHT/100);
+                    const units = this.state.units.filter(u => u.location === node.id && u.hp > 0);
+                    const myFaction = selectedUnit ? selectedUnit.faction : (this.state.faction ? this.state.faction.id : null);
+                    const hasEnemy = units.some(u => u.faction !== myFaction && myFaction !== null);
+                    
+                    let isTarget = false, isAttack = false;
+                    if (selectedUnit) {
+                        if (!selectedUnit.hasMoved && reachable[node.id] > 0) {
+                            if (!(selectedUnit.type === 'fleet' && node.type === 'surface') && selectedUnit.type !== 'defense') isTarget = true;
+                        }
+                        if (!selectedUnit.hasAttacked && hasEnemy) {
+                            const connected = this.isConnected(selectedUnit.location, node.id);
+                            const bombard = selectedUnit.type === 'fleet' && node.parent === selectedUnit.location;
+                            const local = selectedUnit.location === node.id;
+                            if (connected || bombard || local) {
+                                if (!(selectedUnit.type === 'army' && (MAP_NODES.find(n=>n.id===selectedUnit.location).type!=='surface' || node.type!=='surface'))) isAttack = true;
+                            }
+                        }
+                    }
+
+                    let border = 'border-slate-600 bg-slate-800/80';
+                    if (isTarget && isAttack) border = 'border-yellow-400 bg-yellow-900/40 pulse-ring';
+                    else if (isAttack) border = 'border-red-500 bg-red-900/40 pulse-ring';
+                    else if (isTarget) border = 'border-emerald-400 bg-emerald-900/40 pulse-ring';
+
+                    let iconHtml = '';
+                    if (units.length > 0) {
+                        iconHtml = `<div class="grid grid-cols-2 gap-1 pointer-events-none">` + 
+                        units.map((u, i) => {
+                            const bg = u.faction === 'ALIEN' ? 'bg-purple-600' : FACTIONS[u.faction].color;
+                            const isSel = this.state.selectedUnitId === u.id;
+                            return `<div class="w-5 h-5 rounded-full flex items-center justify-center text-white ring-1 ring-black/50 shadow-sm ${bg} ${isSel ? 'ring-2 ring-yellow-400 z-20 scale-125' : ''}" style="margin-left:${i>0&&i%2!==0?'-6px':0};margin-top:${i>1?'-6px':0}"><i data-lucide="${u.icon}" class="w-3 h-3"></i></div>`
+                        }).join('') + `</div>`;
+                    } else {
+                        if (node.type === 'surface') iconHtml = '<i data-lucide="globe" class="w-5 h-5 text-slate-500 opacity-40"></i>';
+                        else if (node.type === 'point') iconHtml = '<div class="w-1.5 h-1.5 bg-slate-600 rounded-full"></div>';
+                        else iconHtml = '<i data-lucide="anchor" class="w-4 h-4 text-slate-500 opacity-30"></i>';
+                    }
+
+                    return `<div class="absolute map-node flex items-center justify-center border-2 shadow-lg backdrop-blur-sm transition-all duration-300 cursor-pointer ${border}" style="left:${x}px;top:${y}px;width:${node.type==='orbit'?40:56}px;height:${node.type==='orbit'?40:56}px;transform:translate(-50%,-50%);border-radius:${node.type==='orbit'?'4px':'999px'}" onclick="window.game.handleNodeClick('${node.id}')">${iconHtml}<span class="absolute -bottom-6 text-[12px] whitespace-nowrap bg-black/60 px-2 py-0.5 rounded text-slate-300 pointer-events-none z-50 node-label">${node.name}</span></div>`;
+                }).join('');
+                lucide.createIcons();
+            }
+
+            renderUI() {
+                const sidebar = document.getElementById('sidebar');
+                const statusBar = document.getElementById('game-status-bar');
+
+                if (this.state.phase === 'menu') {
+                    const showAliens = this.state.mode === 'invasion';
+                    const showHumans = !showAliens;
+
+                    statusBar.innerHTML = '';
+                    sidebar.innerHTML = `
+                        <div class="h-full flex flex-col">
+                            <h2 class="text-lg lg:text-xl font-bold text-center mb-2 text-cyan-400 shrink-0">選擇模式與陣營</h2>
+                            <div class="mb-2 space-y-1 shrink-0">
+                                <div class="p-2 bg-slate-800 rounded border ${this.state.mode==='standard'?'border-blue-400':'border-slate-600'} flex items-center gap-2 cursor-pointer hover:bg-slate-700" onclick="window.game.setMode('standard')">
+                                    <div class="font-bold text-white text-sm">標準</div><div class="text-xs text-slate-400">單人戰役</div>
+                                </div>
+                                <div class="p-2 bg-slate-800 rounded border ${this.state.mode==='alliance'?'border-yellow-400':'border-slate-600'} flex items-center gap-2 cursor-pointer hover:bg-slate-700" onclick="window.game.setMode('alliance')">
+                                    <div class="font-bold text-yellow-400 text-sm">聯合</div><div class="text-xs text-slate-400">聯軍vs蟲族</div>
+                                </div>
+                                <div class="p-2 bg-slate-800 rounded border ${this.state.mode==='invasion'?'border-purple-500':'border-slate-600'} flex items-center gap-2 cursor-pointer hover:bg-slate-700" onclick="window.game.setMode('invasion')">
+                                    <div class="font-bold text-purple-400 text-sm">入侵</div><div class="text-xs text-slate-400">扮演蟲族</div>
+                                </div>
+                            </div>
+                            <div class="flex-1 overflow-y-auto space-y-2">
+                                ${Object.values(FACTIONS).filter(f => (showHumans && f.id !== 'ALIEN') || (showAliens && f.id === 'ALIEN')).map(f => `
+                                    <button onclick="window.game.startGame('${f.id}')" class="w-full p-2 lg:p-3 rounded border border-slate-600 hover:border-white transition-all text-left bg-slate-800 hover:bg-slate-700 relative overflow-hidden group">
+                                        <div class="absolute inset-0 ${f.color} opacity-10"></div>
+                                        <div class="font-bold text-base relative z-10">${f.id} <span class="text-xs opacity-70">${f.name}</span></div>
+                                        <div class="text-xs mt-1 text-slate-300 relative z-10 leading-tight">${f.ability}</div>
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (this.state.phase === 'playing') {
+                    statusBar.classList.remove('hidden');
+                    let turnColor = 'bg-slate-600';
+                    let turnText = '等待';
+                    if (this.state.turnPhase === 'PLAYER') { turnColor = 'bg-green-600'; turnText = '指令'; }
+                    else if (this.state.turnPhase === 'ALLIES') { turnColor = 'bg-blue-600'; turnText = '友軍'; }
+                    else if (this.state.turnPhase === 'HUMANS') { turnColor = 'bg-blue-600'; turnText = '聯軍'; }
+                    else { turnColor = 'bg-red-600'; turnText = '敵軍'; }
+
+                    statusBar.innerHTML = `
+                        <span class="text-slate-400 hidden lg:inline">指揮:</span><span class="font-bold ${this.state.faction.textColor}">${this.state.faction.id}</span>
+                        <div class="bg-slate-700 px-2 py-0.5 rounded"><span class="text-slate-400">R:</span><span class="font-mono text-white">${this.state.turn}</span></div>
+                        <div class="px-2 py-0.5 rounded font-bold ${turnColor}">${turnText}</div>
+                    `;
+
+                    let unitInfoHtml = '<div class="text-center text-slate-500 py-2 italic text-xs lg:text-sm">點擊單位</div>';
+                    if (this.state.selectedUnitId) {
+                        const u = this.state.units.find(u => u.id === this.state.selectedUnitId);
+                        if (u) {
+                            unitInfoHtml = `
+                                <div class="bg-black/20 p-2 rounded border border-slate-700 space-y-1 animate-fade-in">
+                                    <div class="flex items-center gap-2">
+                                        <div class="p-1 rounded bg-slate-700"><i data-lucide="${u.icon}" class="w-4 h-4 text-white"></i></div>
+                                        <div class="leading-none"><div class="font-bold text-sm lg:text-base">${u.name}</div><div class="text-[10px] text-slate-400">${u.faction}</div></div>
+                                    </div>
+                                    <div class="flex justify-between text-xs lg:text-sm">
+                                        <div class="text-red-300 font-mono flex items-center gap-1"><i data-lucide="crosshair" class="w-3 h-3"></i>${u.atk}</div>
+                                        <div class="text-green-300 font-mono flex items-center gap-1"><i data-lucide="activity" class="w-3 h-3"></i>${u.hp}/${u.maxHp}</div>
+                                    </div>
+                                    <div class="flex gap-1 mt-1">
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded border ${u.hasMoved ? 'border-red-900 text-red-700' : 'border-green-800 text-green-500'}">${u.hasMoved ? '停' : '移'}</span>
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded border ${u.hasAttacked ? 'border-red-900 text-red-700' : 'border-amber-800 text-amber-500'}">${u.hasAttacked ? '冷' : '武'}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    const logsHtml = this.state.logs.slice(-8).reverse().map(l => {
+                        let color = 'border-slate-500 text-slate-400';
+                        if (l.type === 'combat') color = 'border-red-500 text-red-300';
+                        if (l.type === 'move') color = 'border-blue-500 text-blue-300';
+                        if (l.type === 'destroy') color = 'border-red-600 text-red-500 font-bold';
+                        if (l.type === 'enemy') color = 'border-purple-500 text-purple-300';
+                        return `<div class="pl-2 py-0.5 border-l-2 text-[10px] lg:text-xs font-mono leading-tight ${color} truncate">${l.text}</div>`;
+                    }).join('');
+
+                    sidebar.innerHTML = `
+                        <div class="flex flex-row lg:flex-col gap-2 h-full">
+                            <div class="w-1/2 lg:w-full flex flex-col gap-2">
+                                <div class="bg-slate-800 p-2 rounded border border-slate-600 min-h-[80px] shrink-0">${unitInfoHtml}</div>
+                                <button onclick="window.game.endTurn()" class="py-2 lg:py-3 rounded font-bold tracking-wider shadow-lg bg-amber-600 hover:bg-amber-500 text-white transition-all text-sm lg:text-base shrink-0" ${this.state.turnPhase !== 'PLAYER' ? 'disabled style="opacity:0.5"' : ''}>
+                                    ${this.state.turnPhase === 'PLAYER' ? '結束回合' : '...'}
+                                </button>
+                            </div>
+                            <div class="flex-1 bg-black/40 rounded border border-slate-700 p-1 overflow-y-auto space-y-0.5 h-full min-h-0">${logsHtml}</div>
+                        </div>
+                    `;
+                } else {
+                    let msg = this.state.phase === 'won' ? '戰役勝利' : '任務失敗';
+                    sidebar.innerHTML = `
+                        <div class="h-full flex flex-col items-center justify-center text-center p-4">
+                            <i data-lucide="${this.state.phase === 'won' ? 'star' : 'skull'}" class="w-12 h-12 mb-2 ${this.state.phase === 'won' ? 'text-yellow-400' : 'text-red-500'}"></i>
+                            <h2 class="text-xl font-bold mb-2 text-white">${msg}</h2>
+                            <button onclick="window.location.reload()" class="bg-white text-slate-900 px-6 py-2 rounded-full font-bold text-sm mt-4">重新開始</button>
+                        </div>
+                    `;
+                }
+                lucide.createIcons();
+            }
+        }
+
+        window.onload = () => { window.game = new GameEngine(); };
+    </script>
+</body>
+</html>
