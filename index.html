@@ -7,92 +7,57 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        /* 強制鎖定 viewport，防止手機瀏覽器彈性捲動 */
         html, body { 
-            position: fixed; 
-            width: 100%; 
-            height: 100%; 
-            overflow: hidden; 
+            position: fixed; width: 100%; height: 100%; overflow: hidden; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            user-select: none; 
-            -webkit-tap-highlight-color: transparent;
-            background-color: #0f172a; /* slate-900 */
+            user-select: none; -webkit-tap-highlight-color: transparent;
+            background-color: #0f172a;
         }
-
-        /* 地圖背景 */
         .map-bg {
             background-image: url('https://www.transparenttextures.com/patterns/stardust.png');
             background-color: #020617;
-            touch-action: none; /* 關鍵：告訴瀏覽器地圖區域不處理預設手勢 */
+            touch-action: none;
         }
-        
         .node-label { text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none; }
-        
-        /* 動畫類 */
         .pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
         @keyframes pulse-ring {
             0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
             70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
-        
-        .bounce-in { animation: bounce-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .bounce-in { animation: bounce-in 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         @keyframes bounce-in {
             0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
             100% { transform: translateX(-50%) scale(1); opacity: 1; }
         }
-
-        /* 側邊欄捲動優化 */
-        .scroll-y-auto {
-            -webkit-overflow-scrolling: touch;
-        }
+        .scroll-y-auto { -webkit-overflow-scrolling: touch; }
     </style>
 </head>
 <body class="flex flex-col text-slate-100">
 
-    <!-- 頂部導航 -->
     <header class="h-12 lg:h-14 bg-slate-800 border-b border-slate-700 flex items-center px-3 justify-between shrink-0 z-30 shadow-md relative">
         <div class="flex items-center gap-2 overflow-hidden">
            <i data-lucide="globe" class="text-blue-400 w-5 h-5 lg:w-6 lg:h-6 shrink-0"></i>
            <h1 class="font-bold text-sm lg:text-lg tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 truncate">SOLAR DEFENSE</h1>
         </div>
-        <div id="game-status-bar" class="hidden flex gap-2 lg:gap-6 text-xs lg:text-sm items-center shrink-0 ml-2">
-            <!-- JS 動態填充 -->
-        </div>
+        <div id="game-status-bar" class="hidden flex gap-2 lg:gap-6 text-xs lg:text-sm items-center shrink-0 ml-2"></div>
     </header>
 
-    <!-- 主佈局 -->
     <div class="flex-1 relative flex flex-col lg:flex-row w-full h-full overflow-hidden">
-        
-        <!-- 地圖視窗 (手機版：佔據上方剩餘空間 / 電腦版：佔據右側) -->
         <div id="map-viewport" class="flex-1 relative overflow-hidden map-bg cursor-grab active:cursor-grabbing">
-            
-            <!-- 地圖控制 UI (縮放) -->
             <div class="absolute top-4 right-4 lg:bottom-6 lg:right-6 lg:top-auto z-20 flex flex-col gap-2 pointer-events-auto">
                 <button onclick="game.zoom(0.2)" class="p-2 bg-slate-800/80 text-white rounded shadow-lg border border-slate-600 hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur"><i data-lucide="plus" class="w-5 h-5"></i></button>
-                <div id="zoom-level" class="p-1 lg:p-2 bg-slate-900/80 text-[10px] lg:text-xs text-center rounded border border-slate-700 text-slate-400 font-mono select-none backdrop-blur">
-                    80%
-                </div>
+                <div id="zoom-level" class="p-1 lg:p-2 bg-slate-900/80 text-[10px] lg:text-xs text-center rounded border border-slate-700 text-slate-400 font-mono select-none backdrop-blur">80%</div>
                 <button onclick="game.zoom(-0.2)" class="p-2 bg-slate-800/80 text-white rounded shadow-lg border border-slate-600 hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur"><i data-lucide="minus" class="w-5 h-5"></i></button>
             </div>
-
-            <!-- 地圖內容容器 -->
             <div id="map-container" class="relative transition-transform duration-75 ease-out origin-top-left shadow-2xl" style="width: 3200px; height: 2000px;">
-                <!-- 網格背景 -->
-                <div class="absolute inset-0 w-full h-full opacity-10 pointer-events-none" 
-                     style="background-image: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 100px 100px;">
-                </div>
+                <div class="absolute inset-0 w-full h-full opacity-10 pointer-events-none" style="background-image: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 100px 100px;"></div>
                 <svg id="map-lines" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
                 <div id="map-nodes" class="absolute inset-0 w-full h-full z-10"></div>
                 <div id="tactical-menu-layer" class="absolute inset-0 w-full h-full z-50 pointer-events-none"></div>
             </div>
         </div>
-
-        <!-- 控制面板 (手機版：固定在底部，高度 40% / 電腦版：左側固定寬度) -->
-        <div class="w-full lg:w-80 h-[40%] lg:h-auto bg-slate-800/95 border-t lg:border-t-0 lg:border-r border-slate-700 p-3 lg:p-4 flex flex-col gap-2 lg:gap-4 z-20 backdrop-blur-md shadow-[0_-4px_10px_rgba(0,0,0,0.3)] shrink-0 transition-all" id="sidebar">
-            <!-- JS 渲染 -->
-        </div>
-
+        <div class="w-full lg:w-80 h-[40%] lg:h-auto bg-slate-800/95 border-t lg:border-t-0 lg:border-r border-slate-700 p-3 lg:p-4 flex flex-col gap-2 lg:gap-4 z-20 backdrop-blur-md shadow-[0_-4px_10px_rgba(0,0,0,0.3)] shrink-0 transition-all" id="sidebar"></div>
     </div>
 
     <script>
@@ -144,48 +109,37 @@
         class GameEngine {
             constructor() {
                 this.state = {
-                    phase: 'menu',
-                    mode: 'standard',
-                    faction: null,
-                    turn: 1,
-                    turnPhase: 'PLAYER', 
-                    units: [],
-                    selectedUnitId: null,
-                    logs: [],
-                    actionMenu: null,
-                    view: { x: -200, y: -400, scale: 0.8 }
+                    phase: 'menu', mode: 'standard', faction: null, turn: 1, turnPhase: 'PLAYER',
+                    units: [], selectedUnitId: null, logs: [], actionMenu: null, view: { x: -200, y: -400, scale: 0.8 }
                 };
                 this.dragState = { isDown: false, startX: 0, startY: 0, initialViewX: 0, initialViewY: 0, isDragging: false };
                 this.container = document.getElementById('map-container');
                 this.viewport = document.getElementById('map-viewport');
                 
-                // 手機版初始縮放與位置調整
                 if(window.innerWidth < 768) {
                     this.state.view.scale = 0.5;
                     this.state.view.x = -1000;
                     this.state.view.y = -900;
                 }
-
                 this.initListeners();
                 this.renderUI();
                 this.updateTransform();
             }
 
             initListeners() {
-                // 滑鼠事件
-                this.viewport.addEventListener('mousedown', (e) => {
-                    if(e.target.closest('button')) return;
+                const startDrag = (x, y) => {
                     this.dragState.isDown = true;
-                    this.dragState.startX = e.clientX;
-                    this.dragState.startY = e.clientY;
+                    this.dragState.startX = x;
+                    this.dragState.startY = y;
                     this.dragState.initialViewX = this.state.view.x;
                     this.dragState.initialViewY = this.state.view.y;
                     this.dragState.isDragging = false;
-                });
-                window.addEventListener('mousemove', (e) => {
+                };
+                const moveDrag = (x, y, e) => {
                     if (!this.dragState.isDown) return;
-                    const dx = e.clientX - this.dragState.startX;
-                    const dy = e.clientY - this.dragState.startY;
+                    if (e && e.cancelable) e.preventDefault();
+                    const dx = x - this.dragState.startX;
+                    const dy = y - this.dragState.startY;
                     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
                         this.dragState.isDragging = true;
                         this.closeActionMenu();
@@ -193,48 +147,18 @@
                     this.state.view.x = this.dragState.initialViewX + dx;
                     this.state.view.y = this.dragState.initialViewY + dy;
                     this.updateTransform();
-                });
+                };
+                
+                this.viewport.addEventListener('mousedown', e => { if(!e.target.closest('button')) startDrag(e.clientX, e.clientY); });
+                window.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY, e));
                 window.addEventListener('mouseup', () => { this.dragState.isDown = false; });
 
-                // 觸控事件 (修復手機拖曳)
-                this.viewport.addEventListener('touchstart', (e) => {
-                    if(e.target.closest('button')) return;
-                    this.dragState.isDown = true;
-                    const touch = e.touches[0];
-                    this.dragState.startX = touch.clientX;
-                    this.dragState.startY = touch.clientY;
-                    this.dragState.initialViewX = this.state.view.x;
-                    this.dragState.initialViewY = this.state.view.y;
-                    this.dragState.isDragging = false;
-                }, {passive: false});
-
-                // 綁定在 window 上以確保拖曳出界也能運作，但只針對地圖操作 preventDefault
-                window.addEventListener('touchmove', (e) => {
-                    if (!this.dragState.isDown) return;
-                    
-                    // 關鍵：防止拖曳地圖時觸發瀏覽器捲動
-                    if (e.cancelable) e.preventDefault(); 
-
-                    const touch = e.touches[0];
-                    const dx = touch.clientX - this.dragState.startX;
-                    const dy = touch.clientY - this.dragState.startY;
-                    
-                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-                        this.dragState.isDragging = true;
-                        this.closeActionMenu();
-                    }
-                    this.state.view.x = this.dragState.initialViewX + dx;
-                    this.state.view.y = this.dragState.initialViewY + dy;
-                    this.updateTransform();
-                }, {passive: false});
-
+                this.viewport.addEventListener('touchstart', e => { if(!e.target.closest('button')) startDrag(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+                window.addEventListener('touchmove', e => moveDrag(e.touches[0].clientX, e.touches[0].clientY, e), {passive: false});
                 window.addEventListener('touchend', () => { this.dragState.isDown = false; });
 
-                // 縮放
-                this.viewport.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom(e.deltaY > 0 ? -0.1 : 0.1); });
-                
-                // 點擊處理
-                this.container.addEventListener('click', (e) => {
+                this.viewport.addEventListener('wheel', e => { e.preventDefault(); this.zoom(e.deltaY > 0 ? -0.1 : 0.1); });
+                this.container.addEventListener('click', e => {
                     if (this.dragState.isDragging) return;
                     if (!e.target.closest('.map-node') && !e.target.closest('#tactical-menu-layer')) {
                         this.state.selectedUnitId = null;
@@ -250,35 +174,22 @@
                 document.getElementById('zoom-level').textContent = Math.round(this.state.view.scale * 100) + '%';
                 this.updateTransform();
             }
-
-            updateTransform() {
-                this.container.style.transform = `translate(${this.state.view.x}px, ${this.state.view.y}px) scale(${this.state.view.scale})`;
-            }
-
-            setMode(mode) {
-                this.state.mode = mode;
-                this.renderUI();
-            }
+            updateTransform() { this.container.style.transform = `translate(${this.state.view.x}px, ${this.state.view.y}px) scale(${this.state.view.scale})`; }
+            setMode(mode) { this.state.mode = mode; this.renderUI(); }
 
             startGame(factionKey) {
-                const faction = FACTIONS[factionKey];
-                this.state.faction = faction;
+                this.state.faction = FACTIONS[factionKey];
                 this.state.phase = 'playing';
                 this.state.units = this.generateInitialUnits(factionKey);
                 this.state.logs = [];
                 this.state.turn = 1;
                 this.state.turnPhase = 'PLAYER';
-                
-                let msg = `指揮官，${faction.name} 已部署。`;
-                if (this.state.mode === 'alliance') msg += " 聯合協議已簽署。";
-                else if (this.state.mode === 'invasion') msg = "蟲巢意志已覺醒。目標：地球。";
-                else msg += " 偵測到柯伊伯帶反應。";
-                
+                let msg = `指揮官，${FACTIONS[factionKey].name} 已部署。`;
+                if (this.state.mode === 'alliance') msg += " 聯合協議已簽署，全體人類陣營結盟。";
+                else if (this.state.mode === 'invasion') msg = "蟲巢意志覺醒。目標：消滅人類。";
+                else msg += " 偵測到柯伊伯帶高能反應。";
                 this.addLog(msg, 'system');
-                this.renderUI();
-                this.renderMapLines();
-                this.renderMapNodes();
-                lucide.createIcons();
+                this.renderUI(); this.renderMapLines(); this.renderMapNodes(); lucide.createIcons();
             }
 
             generateInitialUnits(playerFactionKey) {
@@ -291,7 +202,6 @@
                 humanFactions.forEach(fKey => {
                     const f = FACTIONS[fKey];
                     const isPlayer = !isInvasion && (fKey === playerFactionKey);
-                    
                     ['earth_orbit', 'earth_orbit', 'mars_orbit'].forEach((loc, i) => units.push(this.createUnit(id++, fKey, 'fleet', f.shipNames[i%3]||`F-${i}`, loc, f, isPlayer)));
                     ['earth', 'moon', 'mars'].forEach((loc, i) => units.push(this.createUnit(id++, fKey, 'army', f.armyNames[i%2]||`A-${i}`, loc, f, isPlayer)));
                     ['earth', 'mars'].forEach((loc, i) => units.push(this.createUnit(id++, fKey, 'defense', `${fKey}防禦-${i+1}`, loc, f, isPlayer)));
@@ -302,14 +212,12 @@
                     { loc: 'l5', type: 'fleet' }, { loc: 'vesta', type: 'army' }, { loc: 'uranus_orbit', type: 'fleet' }, { loc: 'miranda', type: 'defense' },
                     { loc: 'neptune_orbit', type: 'fleet' }, { loc: 'triton', type: 'army' }, { loc: 'pluto', type: 'defense' }, { loc: 'kuiper_outpost', type: 'fleet' }
                 ];
-
                 if (isAlliance || isInvasion) {
                     alienSpawns = alienSpawns.concat([
                         { loc: 'pluto_orbit', type: 'fleet' }, { loc: 'neptune_orbit', type: 'fleet' }, { loc: 'uranus_orbit', type: 'fleet' }, { loc: 'saturn_orbit', type: 'fleet' },
                         { loc: 'jupiter_orbit', type: 'fleet' }, { loc: 'ceres_orbit', type: 'fleet' }
                     ]);
                 }
-                
                 alienSpawns.forEach((spawn, i) => units.push(this.createUnit(id++, 'ALIEN', spawn.type, `Alien-${spawn.type}-${i}`, spawn.loc, null, isInvasion)));
                 return units;
             }
@@ -317,48 +225,44 @@
             createUnit(id, factionKey, typeKey, name, loc, factionBonus, isPlayerControl) {
                 const type = UNIT_TYPES[typeKey.toUpperCase()];
                 let bonusHp = 0, bonusAtk = 0, bonusMove = 0;
-                let isAi = !isPlayerControl;
-
                 if (factionKey !== 'ALIEN' && factionBonus) {
                     if (factionBonus.bonus.type === 'fleet_hp' && typeKey === 'fleet') bonusHp = factionBonus.bonus.val;
                     if (factionBonus.bonus.type === 'army_hp' && typeKey === 'army') bonusHp = factionBonus.bonus.val;
                     if (factionBonus.bonus.type === 'all_hp') bonusHp = factionBonus.bonus.val;
                     if (factionBonus.bonus.type === 'atk' && typeKey === 'fleet') bonusAtk = factionBonus.bonus.val;
                     if (factionBonus.bonus.type === 'move') bonusMove = factionBonus.bonus.val;
-                } 
-                
+                }
                 if (factionKey === 'ALIEN') {
                     const isBuffed = this.state.mode === 'alliance' || this.state.mode === 'invasion';
-                    bonusHp = isBuffed ? 40 : 10; 
-                    bonusAtk = isBuffed ? 5 : 0;
+                    bonusHp = isBuffed ? 40 : 10; bonusAtk = isBuffed ? 5 : 0;
                 }
-
                 return {
                     id: id, faction: factionKey, type: typeKey, name: name,
                     hp: type.hp + bonusHp, maxHp: type.hp + bonusHp,
                     atk: type.atk + bonusAtk, move: type.move + bonusMove,
-                    icon: type.icon, location: loc, 
-                    hasMoved: isAi, hasAttacked: false, 
-                    isAi: isAi, control: isPlayerControl ? 'PLAYER' : 'AI'
+                    icon: type.icon, location: loc, hasMoved: !isPlayerControl, hasAttacked: false, 
+                    isAi: !isPlayerControl, control: isPlayerControl ? 'PLAYER' : 'AI'
                 };
             }
 
+            // 核心邏輯：判斷是否為盟友
+            isAlly(unitA, unitB) {
+                // 虛空軍團 vs 人類
+                if (unitA.faction === 'ALIEN' && unitB.faction === 'ALIEN') return true;
+                if (unitA.faction !== 'ALIEN' && unitB.faction !== 'ALIEN') return true;
+                return false;
+            }
+
             getReachableNodes(startId, range) {
-                const reachable = {}; 
-                const queue = [{id: startId, dist: 0}];
-                reachable[startId] = 0;
+                const reachable = {}; const queue = [{id: startId, dist: 0}]; reachable[startId] = 0;
                 while(queue.length > 0) {
                     const current = queue.shift();
                     if (current.dist >= range) continue;
-                    const neighbors = [];
-                    MAP_LINKS.forEach(link => {
-                        if (link[0] === current.id) neighbors.push(link[1]);
-                        if (link[1] === current.id) neighbors.push(link[0]);
-                    });
-                    neighbors.forEach(nextId => {
-                        if (reachable[nextId] === undefined) {
-                            reachable[nextId] = current.dist + 1;
-                            queue.push({id: nextId, dist: current.dist + 1});
+                    MAP_LINKS.forEach(l => {
+                        const neighbor = l[0]===current.id ? l[1] : (l[1]===current.id ? l[0] : null);
+                        if (neighbor && reachable[neighbor] === undefined) {
+                            reachable[neighbor] = current.dist + 1;
+                            queue.push({id: neighbor, dist: current.dist + 1});
                         }
                     });
                 }
@@ -373,11 +277,13 @@
                 const myUnits = unitsAtNode.filter(u => u.control === 'PLAYER');
                 const selectedUnit = this.state.units.find(u => u.id === this.state.selectedUnitId);
 
-                // Select Self
+                // --- 選擇或切換自己單位 ---
                 if (selectedUnit && selectedUnit.location === nodeId) {
-                    const enemiesHere = unitsAtNode.filter(u => u.faction !== selectedUnit.faction);
+                    // 檢查是否能就地攻擊敵人
+                    const enemiesHere = unitsAtNode.filter(u => !this.isAlly(u, selectedUnit));
                     if (enemiesHere.length > 0 && !selectedUnit.hasAttacked) {
                         const node = MAP_NODES.find(n => n.id === nodeId);
+                        // 陸軍在太空不能攻擊
                         if (!(selectedUnit.type === 'army' && node.type !== 'surface')) {
                             this.showActionMenu(nodeId, false, true);
                             return;
@@ -387,35 +293,36 @@
                         const idx = myUnits.findIndex(u => u.id === selectedUnit.id);
                         const next = myUnits[(idx + 1) % myUnits.length];
                         this.state.selectedUnitId = next.id;
-                        this.renderMapNodes();
-                        this.renderUI();
-                        return;
+                        this.renderMapNodes(); this.renderUI(); return;
                     }
                     return;
                 }
 
-                // New Selection
                 if (!selectedUnit) {
                     if (myUnits.length > 0) {
                         const active = myUnits.find(u => !u.hasMoved) || myUnits[0];
                         this.state.selectedUnitId = active.id;
-                        this.renderMapNodes();
-                        this.renderUI();
+                        this.renderMapNodes(); this.renderUI();
                     }
                     return;
                 }
 
-                // Action
+                // --- 行動決策 ---
                 const targetNode = MAP_NODES.find(n => n.id === nodeId);
-                const enemiesHere = unitsAtNode.filter(u => u.faction !== selectedUnit.faction);
+                const enemiesHere = unitsAtNode.filter(u => !this.isAlly(u, selectedUnit));
                 
+                // 計算移動
                 let canMove = false;
                 const reachableNodes = this.getReachableNodes(selectedUnit.location, selectedUnit.move);
                 const dist = reachableNodes[nodeId];
+                // 只要路徑可達且未移動，就可以移動 (即使有敵人)
                 if (!selectedUnit.hasMoved && dist !== undefined && dist > 0) {
-                    if (!(selectedUnit.type === 'fleet' && targetNode.type === 'surface') && selectedUnit.type !== 'defense') canMove = true;
+                    if (!(selectedUnit.type === 'fleet' && targetNode.type === 'surface') && selectedUnit.type !== 'defense') {
+                        canMove = true;
+                    }
                 }
 
+                // 計算攻擊
                 let canAttack = false;
                 const isConnectedNode = this.isConnected(selectedUnit.location, nodeId);
                 const isOrbitBombard = (selectedUnit.type === 'fleet' && targetNode.parent === selectedUnit.location);
@@ -424,18 +331,17 @@
                     const inRange = isConnectedNode || isOrbitBombard || selectedUnit.location === nodeId;
                     if (inRange) {
                         const uNode = MAP_NODES.find(n=>n.id===selectedUnit.location);
-                        if (!(selectedUnit.type === 'army' && (uNode.type !== 'surface' || targetNode.type !== 'surface'))) canAttack = true;
+                        // 陸軍只能在地面攻擊地面
+                        if (!(selectedUnit.type === 'army' && (uNode.type !== 'surface' || targetNode.type !== 'surface'))) {
+                            canAttack = true;
+                        }
                     }
                 }
 
-                if (canMove && canAttack) this.showActionMenu(nodeId, true, true);
-                else if (canMove) this.moveUnit(selectedUnit, nodeId);
-                else if (canAttack) this.combat(selectedUnit, nodeId);
+                if (canMove || canAttack) this.showActionMenu(nodeId, canMove, canAttack);
                 else {
                     if (!isConnectedNode && !isOrbitBombard) {
-                        this.state.selectedUnitId = null;
-                        this.renderMapNodes();
-                        this.renderUI();
+                        this.state.selectedUnitId = null; this.renderMapNodes(); this.renderUI();
                     }
                 }
             }
@@ -455,6 +361,11 @@
             executeAction(type, nodeId) {
                 const unit = this.state.units.find(u => u.id === this.state.selectedUnitId);
                 if (!unit) return;
+                
+                // Server-side check (simulation)
+                if (type === 'attack' && unit.hasAttacked) { this.addLog('錯誤：單位已攻擊過', 'warning'); this.closeActionMenu(); return; }
+                if (type === 'move' && unit.hasMoved) { this.addLog('錯誤：單位已移動過', 'warning'); this.closeActionMenu(); return; }
+
                 if (type === 'move') this.moveUnit(unit, nodeId);
                 if (type === 'attack') this.combat(unit, nodeId);
                 this.closeActionMenu();
@@ -472,15 +383,14 @@
             }
 
             combat(attacker, nodeId) {
-                const enemies = this.state.units.filter(u => u.location === nodeId && u.faction !== attacker.faction && u.hp > 0);
+                const enemies = this.state.units.filter(u => u.location === nodeId && !this.isAlly(u, attacker) && u.hp > 0);
                 if (enemies.length === 0) return;
                 const defender = enemies[Math.floor(Math.random() * enemies.length)];
                 
                 let dmg = attacker.atk + Math.floor(Math.random() * 5);
                 let note = '';
                 if (attacker.type === 'fleet' && defender.type === 'army' && attacker.location !== defender.location) {
-                    if (attacker.faction === 'USA') note = '(精準)';
-                    else { dmg = Math.floor(dmg * 0.7); note = '(轟炸)'; }
+                    if (attacker.faction === 'USA') note = '(精準)'; else { dmg = Math.floor(dmg * 0.7); note = '(轟炸)'; }
                 } else if (attacker.location === defender.location) note = '(近戰)';
 
                 const defNode = MAP_NODES.find(n => n.id === defender.location);
@@ -489,13 +399,13 @@
 
                 defender.hp -= dmg;
                 let logType = (attacker.control === 'PLAYER') ? 'combat' : 'enemy';
-                if (this.state.mode === 'alliance' && attacker.control === 'AI' && attacker.faction !== 'ALIEN') logType = 'move';
+                if (this.state.mode === 'alliance' && attacker.control === 'AI' && attacker.faction !== 'ALIEN') logType = 'move'; 
 
                 this.addLog(`${attacker.name} 擊中 ${defender.name}${note} 傷:${dmg}`, logType);
-                
+                attacker.hasAttacked = true;
+
                 if (defender.faction === 'RUS' && attacker.location === defender.location) {
-                    attacker.hp -= 5;
-                    this.addLog(`${defender.name} 反傷 5!`, 'combat');
+                    attacker.hp -= 5; this.addLog(`${defender.name} 反傷 5!`, 'combat');
                 }
 
                 if (defender.hp <= 0) this.addLog(`${defender.name} 擊毀`, 'destroy');
@@ -523,10 +433,7 @@
                 }
             }
 
-            endGame(result) {
-                this.state.phase = result;
-                this.renderUI();
-            }
+            endGame(result) { this.state.phase = result; this.renderUI(); }
 
             endTurn() {
                 this.state.selectedUnitId = null;
@@ -534,13 +441,11 @@
                 if (this.state.mode === 'alliance') {
                     this.state.turnPhase = 'ALLIES';
                     this.addLog('--- 友軍回合 ---', 'system');
-                    this.renderUI();
-                    setTimeout(() => this.runAiTurn('FRIENDLY'), 500);
+                    this.renderUI(); setTimeout(() => this.runAiTurn('FRIENDLY'), 500);
                 } else if (this.state.mode === 'invasion') {
                     this.state.turnPhase = 'HUMANS';
                     this.addLog('--- 聯軍回合 ---', 'system');
-                    this.renderUI();
-                    setTimeout(() => this.runAiTurn('HUMANS'), 500);
+                    this.renderUI(); setTimeout(() => this.runAiTurn('HUMANS'), 500);
                 } else {
                     this.startAlienTurn();
                 }
@@ -549,14 +454,14 @@
             startAlienTurn() {
                 this.state.turnPhase = 'ALIEN';
                 this.addLog('--- 敵方回合 ---', 'system');
-                this.renderUI();
-                this.renderMapNodes();
-                setTimeout(() => this.runAiTurn('ALIEN'), 800);
+                this.renderUI(); setTimeout(() => this.runAiTurn('ALIEN'), 800);
             }
 
             runAiTurn(side) { 
                 const units = this.state.units.filter(u => u.hp > 0);
                 let actors, targets;
+                
+                // 判定雙方陣營
                 if (side === 'ALIEN') {
                     actors = units.filter(u => u.faction === 'ALIEN');
                     targets = units.filter(u => u.faction !== 'ALIEN');
@@ -569,6 +474,7 @@
                 }
 
                 actors.forEach(actor => {
+                    // AI Defense
                     if (actor.type === 'defense') {
                         let potentialTargets = targets.filter(t => this.isConnected(actor.location, t.location) || actor.location === t.location);
                         const node = MAP_NODES.find(n => n.id === actor.location);
@@ -582,9 +488,11 @@
 
                     let target = null;
                     const actorNode = MAP_NODES.find(n => n.id === actor.location);
+                    
                     if (!(actor.type === 'army' && actorNode.type !== 'surface')) {
                         let potential = targets.filter(t => this.isConnected(actor.location, t.location) || actor.location === t.location);
                         if (actor.type === 'army') potential = potential.filter(t => MAP_NODES.find(n=>n.id===t.location).type === 'surface');
+                        
                         if (potential.length === 0 && actor.type === 'fleet' && actorNode.type === 'orbit') {
                             const surf = targets.find(t => t.location === actorNode.parent);
                             if (surf) potential.push(surf);
@@ -595,21 +503,28 @@
                     if (target) {
                         this.performAiAttack(actor, target);
                     } else {
+                        // AI Move
                         const reachable = this.getReachableNodes(actor.location, actor.move);
                         let goalId = 'earth';
                         if (side === 'FRIENDLY' || side === 'HUMANS') {
-                            const nearestAlien = targets.sort((a,b) => this.getDist(MAP_NODES.find(n=>n.id===a.location), MAP_NODES.find(n=>n.id===actor.location)) - this.getDist(MAP_NODES.find(n=>n.id===b.location), MAP_NODES.find(n=>n.id===actor.location)))[0];
-                            if (nearestAlien) goalId = nearestAlien.location;
-                            else if (side === 'HUMANS') goalId = 'earth';
+                            // Find nearest enemy
+                            const enemies = targets;
+                            if(enemies.length > 0) {
+                                const nearest = enemies.sort((a,b) => this.getDist(MAP_NODES.find(n=>n.id===a.location), MAP_NODES.find(n=>n.id===actor.location)) - this.getDist(MAP_NODES.find(n=>n.id===b.location), MAP_NODES.find(n=>n.id===actor.location)))[0];
+                                goalId = nearest.location;
+                            } else if (side === 'HUMANS') goalId = 'earth';
                         }
+                        
                         const goalNode = MAP_NODES.find(n => n.id === goalId);
                         const currDist = this.getDist(MAP_NODES.find(n => n.id === actor.location), goalNode);
                         let bestMove = null, bestDist = currDist;
+                        
                         Object.keys(reachable).forEach(nodeId => {
                             if (nodeId === actor.location) return;
                             const n = MAP_NODES.find(n=>n.id===nodeId);
                             if (actor.type === 'fleet' && n.type === 'surface') return;
                             if (actor.type === 'army' && n.type !== 'surface' && currDist < 50) return;
+                            
                             const d = this.getDist(n, goalNode);
                             if (d < bestDist) { bestDist = d; bestMove = nodeId; }
                         });
@@ -628,11 +543,11 @@
                 let dmg = attacker.atk;
                 let note = '';
                 if (attacker.type === 'fleet' && defender.type === 'army' && attacker.location !== defender.location) {
-                    if (attacker.faction !== 'USA') dmg = Math.floor(dmg * 0.6); 
-                    note = '(轟炸)';
+                    if (attacker.faction !== 'USA') dmg = Math.floor(dmg * 0.6); note = '(轟炸)';
                 }
                 const tNode = MAP_NODES.find(n => n.id === defender.location);
                 if (defender.type === 'army' && tNode.type === 'surface') dmg = Math.max(1, dmg - 3);
+                
                 let reflectDmg = 0;
                 if (defender.faction === 'RUS' && attacker.location === defender.location) reflectDmg = 5;
 
@@ -706,8 +621,14 @@
                 container.innerHTML = MAP_NODES.map(node => {
                     const x = node.x * (MAP_WIDTH/180), y = node.y * (MAP_HEIGHT/100);
                     const units = this.state.units.filter(u => u.location === node.id && u.hp > 0);
-                    const myFaction = selectedUnit ? selectedUnit.faction : (this.state.faction ? this.state.faction.id : null);
-                    const hasEnemy = units.some(u => u.faction !== myFaction && myFaction !== null);
+                    
+                    // Check enemy dynamically
+                    let hasEnemy = false;
+                    if (selectedUnit) {
+                        hasEnemy = units.some(u => !this.isAlly(u, selectedUnit));
+                    } else if (this.state.faction) {
+                        hasEnemy = units.some(u => u.faction === 'ALIEN'); // Default visual check
+                    }
                     
                     let isTarget = false, isAttack = false;
                     if (selectedUnit) {
