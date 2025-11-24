@@ -2,21 +2,28 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Solar Defense: 全太陽系戰線</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-tap-highlight-color: transparent; }
-        /* 自定義捲軸 */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #1e293b; }
-        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
-        
+        /* 強制鎖定 viewport，防止手機瀏覽器彈性捲動 */
+        html, body { 
+            position: fixed; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            user-select: none; 
+            -webkit-tap-highlight-color: transparent;
+            background-color: #0f172a; /* slate-900 */
+        }
+
+        /* 地圖背景 */
         .map-bg {
             background-image: url('https://www.transparenttextures.com/patterns/stardust.png');
             background-color: #020617;
+            touch-action: none; /* 關鍵：告訴瀏覽器地圖區域不處理預設手勢 */
         }
         
         .node-label { text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none; }
@@ -35,11 +42,13 @@
             100% { transform: translateX(-50%) scale(1); opacity: 1; }
         }
 
-        /* 防止手機下拉刷新干擾遊戲 */
-        html, body { overscroll-behavior: none; height: 100%; width: 100%; overflow: hidden; }
+        /* 側邊欄捲動優化 */
+        .scroll-y-auto {
+            -webkit-overflow-scrolling: touch;
+        }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-100 h-full w-full flex flex-col">
+<body class="flex flex-col text-slate-100">
 
     <!-- 頂部導航 -->
     <header class="h-12 lg:h-14 bg-slate-800 border-b border-slate-700 flex items-center px-3 justify-between shrink-0 z-30 shadow-md relative">
@@ -52,19 +61,13 @@
         </div>
     </header>
 
-    <!-- 主佈局：手機版直向時為 flex-col，控制台在下；桌面版或橫向時為 flex-row，控制台在左 -->
-    <div class="flex-1 relative overflow-hidden flex flex-col lg:flex-row">
+    <!-- 主佈局 -->
+    <div class="flex-1 relative flex flex-col lg:flex-row w-full h-full overflow-hidden">
         
-        <!-- 左側/底部控制面板 -->
-        <!-- order-last lg:order-first: 手機時在底部(最後渲染)，桌面時在左側(最先渲染) -->
-        <div class="order-last lg:order-first w-full lg:w-80 h-[40%] lg:h-auto bg-slate-800/95 border-t lg:border-t-0 lg:border-r border-slate-700 p-3 lg:p-4 flex flex-col gap-2 lg:gap-4 z-20 backdrop-blur-md shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] lg:shadow-xl shrink-0 transition-all" id="sidebar">
-            <!-- 內容由 JS 渲染 -->
-        </div>
-
-        <!-- 地圖視窗 -->
-        <div id="map-viewport" class="flex-1 relative overflow-hidden map-bg cursor-grab active:cursor-grabbing touch-none">
+        <!-- 地圖視窗 (手機版：佔據上方剩餘空間 / 電腦版：佔據右側) -->
+        <div id="map-viewport" class="flex-1 relative overflow-hidden map-bg cursor-grab active:cursor-grabbing">
             
-            <!-- 地圖控制 UI (縮放按鈕) -->
+            <!-- 地圖控制 UI (縮放) -->
             <div class="absolute top-4 right-4 lg:bottom-6 lg:right-6 lg:top-auto z-20 flex flex-col gap-2 pointer-events-auto">
                 <button onclick="game.zoom(0.2)" class="p-2 bg-slate-800/80 text-white rounded shadow-lg border border-slate-600 hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur"><i data-lucide="plus" class="w-5 h-5"></i></button>
                 <div id="zoom-level" class="p-1 lg:p-2 bg-slate-900/80 text-[10px] lg:text-xs text-center rounded border border-slate-700 text-slate-400 font-mono select-none backdrop-blur">
@@ -73,27 +76,25 @@
                 <button onclick="game.zoom(-0.2)" class="p-2 bg-slate-800/80 text-white rounded shadow-lg border border-slate-600 hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur"><i data-lucide="minus" class="w-5 h-5"></i></button>
             </div>
 
-            <!-- 地圖內容容器 (Transform Target) -->
+            <!-- 地圖內容容器 -->
             <div id="map-container" class="relative transition-transform duration-75 ease-out origin-top-left shadow-2xl" style="width: 3200px; height: 2000px;">
                 <!-- 網格背景 -->
                 <div class="absolute inset-0 w-full h-full opacity-10 pointer-events-none" 
                      style="background-image: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 100px 100px;">
                 </div>
-                
-                <!-- SVG 連線層 -->
                 <svg id="map-lines" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
-                
-                <!-- 節點層 -->
                 <div id="map-nodes" class="absolute inset-0 w-full h-full z-10"></div>
-
-                <!-- 戰術選單層 (獨立於節點，避免點擊問題) -->
                 <div id="tactical-menu-layer" class="absolute inset-0 w-full h-full z-50 pointer-events-none"></div>
             </div>
-
         </div>
+
+        <!-- 控制面板 (手機版：固定在底部，高度 40% / 電腦版：左側固定寬度) -->
+        <div class="w-full lg:w-80 h-[40%] lg:h-auto bg-slate-800/95 border-t lg:border-t-0 lg:border-r border-slate-700 p-3 lg:p-4 flex flex-col gap-2 lg:gap-4 z-20 backdrop-blur-md shadow-[0_-4px_10px_rgba(0,0,0,0.3)] shrink-0 transition-all" id="sidebar">
+            <!-- JS 渲染 -->
+        </div>
+
     </div>
 
-    <!-- JavaScript 遊戲邏輯 -->
     <script>
         const FACTIONS = {
             USA: { id: 'USA', name: '美利堅太空軍', color: 'bg-blue-600', textColor: 'text-blue-400', ability: '天基火力：艦隊攻擊+5，軌道轟炸無懲罰', bonus: { type: 'atk', val: 5 }, shipNames: ['USS Enterprise', 'USS Voyager'], armyNames: ['Space Marines'] },
@@ -152,17 +153,17 @@
                     selectedUnitId: null,
                     logs: [],
                     actionMenu: null,
-                    view: { x: -200, y: -400, scale: 0.8 } // Default Scale
+                    view: { x: -200, y: -400, scale: 0.8 }
                 };
                 this.dragState = { isDown: false, startX: 0, startY: 0, initialViewX: 0, initialViewY: 0, isDragging: false };
                 this.container = document.getElementById('map-container');
                 this.viewport = document.getElementById('map-viewport');
                 
-                // Detect mobile initial scale
+                // 手機版初始縮放與位置調整
                 if(window.innerWidth < 768) {
                     this.state.view.scale = 0.5;
-                    this.state.view.x = -1200; // Center vaguely on earth
-                    this.state.view.y = -1000;
+                    this.state.view.x = -1000;
+                    this.state.view.y = -900;
                 }
 
                 this.initListeners();
@@ -171,7 +172,7 @@
             }
 
             initListeners() {
-                // Mouse Events
+                // 滑鼠事件
                 this.viewport.addEventListener('mousedown', (e) => {
                     if(e.target.closest('button')) return;
                     this.dragState.isDown = true;
@@ -195,7 +196,7 @@
                 });
                 window.addEventListener('mouseup', () => { this.dragState.isDown = false; });
 
-                // Touch Events (for Mobile)
+                // 觸控事件 (修復手機拖曳)
                 this.viewport.addEventListener('touchstart', (e) => {
                     if(e.target.closest('button')) return;
                     this.dragState.isDown = true;
@@ -207,12 +208,17 @@
                     this.dragState.isDragging = false;
                 }, {passive: false});
 
+                // 綁定在 window 上以確保拖曳出界也能運作，但只針對地圖操作 preventDefault
                 window.addEventListener('touchmove', (e) => {
                     if (!this.dragState.isDown) return;
-                    // e.preventDefault(); // Prevent page scroll
+                    
+                    // 關鍵：防止拖曳地圖時觸發瀏覽器捲動
+                    if (e.cancelable) e.preventDefault(); 
+
                     const touch = e.touches[0];
                     const dx = touch.clientX - this.dragState.startX;
                     const dy = touch.clientY - this.dragState.startY;
+                    
                     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
                         this.dragState.isDragging = true;
                         this.closeActionMenu();
@@ -224,8 +230,10 @@
 
                 window.addEventListener('touchend', () => { this.dragState.isDown = false; });
 
+                // 縮放
                 this.viewport.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom(e.deltaY > 0 ? -0.1 : 0.1); });
                 
+                // 點擊處理
                 this.container.addEventListener('click', (e) => {
                     if (this.dragState.isDragging) return;
                     if (!e.target.closest('.map-node') && !e.target.closest('#tactical-menu-layer')) {
@@ -763,7 +771,7 @@
                                     <div class="font-bold text-purple-400 text-sm">入侵</div><div class="text-xs text-slate-400">扮演蟲族</div>
                                 </div>
                             </div>
-                            <div class="flex-1 overflow-y-auto space-y-2">
+                            <div class="flex-1 overflow-y-auto space-y-2 scroll-y-auto">
                                 ${Object.values(FACTIONS).filter(f => (showHumans && f.id !== 'ALIEN') || (showAliens && f.id === 'ALIEN')).map(f => `
                                     <button onclick="window.game.startGame('${f.id}')" class="w-full p-2 lg:p-3 rounded border border-slate-600 hover:border-white transition-all text-left bg-slate-800 hover:bg-slate-700 relative overflow-hidden group">
                                         <div class="absolute inset-0 ${f.color} opacity-10"></div>
@@ -829,7 +837,7 @@
                                     ${this.state.turnPhase === 'PLAYER' ? '結束回合' : '...'}
                                 </button>
                             </div>
-                            <div class="flex-1 bg-black/40 rounded border border-slate-700 p-1 overflow-y-auto space-y-0.5 h-full min-h-0">${logsHtml}</div>
+                            <div class="flex-1 bg-black/40 rounded border border-slate-700 p-1 overflow-y-auto scroll-y-auto space-y-0.5 h-full min-h-0">${logsHtml}</div>
                         </div>
                     `;
                 } else {
